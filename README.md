@@ -10,3 +10,4 @@
 - Generates philosophical questions/ essay
 - give out side-quest
 - use RAG incorporation with best strategies
+- implementing using new Langchain invoke strategy
