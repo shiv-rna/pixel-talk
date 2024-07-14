@@ -2,7 +2,7 @@ import streamlit as st
 import base64
 import logging
 import os
-from typing import List, Dict
+from typing import List, Dict, Optional
 from langchain_openai import ChatOpenAI
 from langchain.prompts import ChatPromptTemplate
 from langchain.chains import LLMChain
@@ -20,11 +20,34 @@ logging.basicConfig(level=logging.info,
                     format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
 logger=logging.getLogger(__name__)
 
-# OpenAI key setup
+# Function to retrieve the openai key
+def get_openai_api_key() -> Optional[str]:
+    """
+    Retrieve the OpenAI api key from the environment variables or Streamlit secrets
+
+    Returns:
+        Optional[str]: The OpenAI API key if found, None otherwise
+    """
+    return os.getenv("OPENAI_API_KEY") or st.secrets("OPENAI_API_KEY")
+
+# OpenAI api key setup
+OPENAI_API_KEY = get_openai_api_key()
+
+if not OPENAI_API_KEY:
+    st.error(ERROR_API_KEY_NOT_FOUND)
+    st.stop()
+
+os.environ["OPENAI_API_KEY"] = OPENAI_API_KEY
 
 
 def initialize_session_state():
-    """Initialize session state variables."""
+    """
+    Initialize session state variables.
+    
+    This function sets up the initial state for the Streamlit app,
+    including chat status, music playing status, conversation memory,
+    and message history
+    """
     if 'chat_started' not in st.session_state:
         st.session_state.chat_started = False
     if 'music_playing' not in st.session_state:
