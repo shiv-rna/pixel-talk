@@ -1,5 +1,27 @@
 import streamlit as st
 import base64
+import logging
+import os
+from typing import List, Dict
+from langchain_openai import ChatOpenAI
+from langchain.prompts import ChatPromptTemplate
+from langchain.chains import LLMChain
+from langchain.memory import ConversationBufferMemory
+
+# Importing constants from config file
+from config import (
+    IMAGE_PATH, AUDIO_PATH, TITLE, START_CHAT_BUTTON_TEXT, USER_MESSAGE_PROMPT,
+    ERROR_API_KEY_NOT_FOUND, ERROR_AUDIO_NOT_FOUND, ERROR_IMAGE_NOT_FOUND,
+    ERROR_RESPONSE_GENERATION
+)
+
+# Setup basic Logging
+logging.basicConfig(level=logging.info,
+                    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
+logger=logging.getLogger(__name__)
+
+# OpenAI key setup
+
 
 def initialize_session_state():
     """Initialize session state variables."""
@@ -37,8 +59,8 @@ def main():
             # Placeholder for knight's response
             st.text_area("Knight says:", value="Greetings, traveler!", height=100)
 
-    if st.session_state.music_playing:
-        play_background_music('/workspaces/pixel-talk/docs/knights_reflection.mp3')
+    # if st.session_state.music_playing:
+    #     play_background_music('/workspaces/pixel-talk/docs/knights_reflection.mp3')
 
 if __name__ == "__main__":
     main()
