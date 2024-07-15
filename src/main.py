@@ -40,7 +40,7 @@ if not OPENAI_API_KEY:
 os.environ["OPENAI_API_KEY"] = OPENAI_API_KEY
 
 
-def initialize_session_state():
+def initialize_session_state() -> None:
     """
     Initialize session state variables.
     
@@ -52,15 +52,29 @@ def initialize_session_state():
         st.session_state.chat_started = False
     if 'music_playing' not in st.session_state:
         st.session_state.music_playing = False
+    if 'conversation_memory' not in st.session_state:
+        st.session_state.conversation_memory = ConversationBufferMemory(memory_key=)
+    if 'messages' not in st.session_state:
+        st.session_state.messages: List[Dict[str, str]] = []
 
-def play_background_music(file_path):
-    """Embed and play background music in the Streamlit app."""
-    with open(file_path, 'rb') as audio_file:
-        audio_bytes = audio_file.read()
-        st.markdown(
-            f'<audio autoplay loop><source src="data:audio/mp3;base64,{base64.b64encode(audio_bytes).decode()}" type="audio/mp3"></audio>',
-            unsafe_allow_html=True
-        )
+
+def play_background_music(file_path) -> None:
+    """
+    Embed and play background music in the Streamlit app.
+
+    Args:
+        file_path (str): The path to the audio file
+    """
+    try:
+        with open(file_path, 'rb') as audio_file:
+            audio_bytes = audio_file.read()
+            st.markdown(
+                f'<audio autoplay loop><source src="data:audio/mp3;base64,{base64.b64encode(audio_bytes).decode()}" type="audio/mp3"></audio>',
+                unsafe_allow_html=True
+            )
+    except FileNotFoundError:
+        logger.error(f"Audio file not found: {file_path}")
+        st.error(ERROR_AUDIO_NOT_FOUND)
 
 def main():
 
