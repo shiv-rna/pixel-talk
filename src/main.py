@@ -53,7 +53,7 @@ def initialize_session_state() -> None:
     if 'music_playing' not in st.session_state:
         st.session_state.music_playing = False
     if 'conversation_memory' not in st.session_state:
-        st.session_state.conversation_memory = ConversationBufferMemory(memory_key=)
+        st.session_state.conversation_memory = ConversationBufferMemory(memory_key="chat_history", return_messages=True)
     if 'messages' not in st.session_state:
         st.session_state.messages: List[Dict[str, str]] = []
 
@@ -75,6 +75,43 @@ def play_background_music(file_path) -> None:
     except FileNotFoundError:
         logger.error(f"Audio file not found: {file_path}")
         st.error(ERROR_AUDIO_NOT_FOUND)
+
+def get_knight_response(user_input: str) -> str:
+    """
+    Get the knight's response using LangChain.
+
+    Args:
+        user_input (str): The user's input message.
+
+    Returns:
+        str: The knight's response
+    """
+    template= """
+    You are a wise and knowledgeable knight who always responds in medieval style
+    Your task is to provide top 5 news highlists from around the world of the user provided month and year
+
+    Current conversation:
+    {chat_history}
+    Human: {human_input}
+    Knight:
+    """
+
+    prompt = ChatPromptTemplate.from_template(template)
+    llm = ChatOpenAI(temperature=0.7)
+
+    chain= prompt | llm
+
+    try:
+        response = chain.invoke({
+            "chat_history": st.session_state.conversation_memory.load_memory_variables({})["chat_history"],
+            "human_input": user_input,
+        })
+        st.session_state.conversation_memory.save_context({"input": user_input}, {"output": response.content})
+        return response.content
+
+    except Exception as e:
+        logger.error(f"Error in getting the knight's words or Knight didn't wish to respond: str(e)")
+        return ERROR_RESPONSE_GENERATION
 
 def main():
 
