@@ -123,7 +123,15 @@ def play_background_music(audio_base64: str) -> None:
         audio_base64 (str): The path to the audio file
     """
     st.markdown(
-        f'<audio autoplay loop><source src="data:audio/mp3;base64,{audio_base64}" type="audio/mp3"></audio>',
+        f'''
+        <audio id="background-music" autoplay loop>
+            <source src="data:audio/mp3;base64,{audio_base64}" type="audio/mp3">
+        </audio>
+        <script>
+            var audio = document.getElementById("background-music");
+            audio.volume = 0.6; // Adjust volume as needed (0.0 to 1.0)
+        </script>
+        ''',
                 unsafe_allow_html=True
             )
 
@@ -225,18 +233,21 @@ def main() -> None:
     else:
         if st.button(START_CHAT_BUTTON_TEXT):
             st.session_state.chat_started = True
-            st.session_state.music_playing = True
+            st.session_state.music_playing = False
 
         if st.session_state.chat_started:
+            if not st.session_state.music_playing:
+                audio_base64 = load_audio(AUDIO_PATH)
+                if audio_base64:
+                    play_background_music(audio_base64)
+                    st.session_state.music_playing = False
+                else:
+                    st.error(ERROR_AUDIO_NOT_FOUND)
+                    
             display_chat_messages()
             handle_user_input(api_key)
 
-        if st.session_state.music_playing:
-            audio_base64 = load_audio(AUDIO_PATH)
-            if audio_base64:
-                play_background_music(audio_base64)
-            else:
-                st.error(ERROR_AUDIO_NOT_FOUND)
+    
 
 if __name__ == "__main__":
     main()
