@@ -2,17 +2,16 @@ import streamlit as st
 import base64
 import logging
 import os
-from typing import List, Dict, Optional
+from typing import List, Dict, Optional, Tuple
 from langchain_openai import ChatOpenAI
 from langchain.prompts import ChatPromptTemplate
-from langchain.chains import LLMChain
 from langchain.memory import ConversationBufferMemory
+from openai import AuthenticationError, RateLimitError
 
 # Importing constants from config file
 from config import (
     IMAGE_PATH, AUDIO_PATH, TITLE, START_CHAT_BUTTON_TEXT, USER_MESSAGE_PROMPT,
-    ERROR_API_KEY_NOT_FOUND, ERROR_AUDIO_NOT_FOUND, ERROR_IMAGE_NOT_FOUND,
-    ERROR_RESPONSE_GENERATION
+    ERROR_AUDIO_NOT_FOUND, ERROR_IMAGE_NOT_FOUND
 )
 
 # Setup basic Logging
@@ -28,15 +27,64 @@ def initialize_session_state() -> None:
     including chat status, music playing status, conversation memory,
     and message history
     """
-    if 'chat_started' not in st.session_state:
-        st.session_state.chat_started = False
-    if 'music_playing' not in st.session_state:
-        st.session_state.music_playing = False
-    if 'conversation_memory' not in st.session_state:
-        st.session_state.conversation_memory = ConversationBufferMemory(memory_key="chat_history", return_messages=True)
-    if 'messages' not in st.session_state:
-        st.session_state.messages: List[Dict[str, str]] = []
+    default_values = {
+        'chat_started': False,
+        'music_playing':False,
+        'conversation_memory': ConversationBufferMemory(memory_key="chat_history", return_messages=True),
+        'messages': [],
+        'validated_api_key': False,
+        'last_validated_key': None,
+    }
+    for key, value in default_values.items():
+        if key not in st.session_state:
+            st.session_state[key] = value
 
+@st.cache_data
+def load_image(path: str) -> Optional[str]:
+    """
+    Load and cache the image
+    """
+    if os.path.exists(path):
+        return path
+    logger.warning(f"Image file not found: {path}")
+    return None
+
+@st.cache_data
+def load_audio(file_path: str) -> Optional[str]:
+    """
+    Load and cache the audio file
+    """
+    try:
+        with open(file_path, 'rb') as audio_file:
+            audio_bytes = audio_file.read()
+        return base64.b64encode(audio_bytes).decode()
+    except FileNotFoundError:
+        logger.error(f"Audio file not found: {file_path}")
+        return None
+    except Exception as e:
+        logger.error(f"Error loading audio file: {str(e)}")
+        return None
+
+@st.cache_data
+def validate_api_key(api_key: str) -> Tuple[bool, Optional[str]]:
+    """
+    Validate the OpenAI API key.
+    
+    Args:
+        api_key (str): The OpenAI API key to be validated.
+
+    Returns:
+        Tuple[bool, Optional[str]]: A tuple containing a boolean indicating whether the API key is valid,
+                                     and an optional error message if the API key is invalid.
+    """
+    try:
+        ChatOpenAI(temperature=0.7, api_key=api_key)
+        return True, None
+    except AuthenticationError:
+        return False, "Invalid API key. Please check & try again"
+    except Exception as e:
+        return False, f"An error occurred while validating the API key: {str(e)}"
+    
 
 def manage_api_key() -> Optional[str]:
     """
@@ -45,43 +93,44 @@ def manage_api_key() -> Optional[str]:
     Returns:
         Optional[str]: The OpenAI API key if provided, None otherwise
     """
-    if 'openai_api_key' not in st.session_state:
-        st.session_state.openai_api_key = None
+    api_key = st.sidebar.text_input("Enter your OpenAI API key🔑:", type="password", key="api_key_input")
 
-    api_key = st.sidebar.text_input("Enter your OpenAI API key🔑:", type="password", key="openai_api_key")
     if api_key:
-        st.session_state.open_api_key = api_key
+        if not st.session_state.validated_api_key or api_key != st.session_state.last_validated_key:
+            is_valid, error_message = validate_api_key(api_key)
+            if is_valid:
+                st.session_state.validated_api_key = True
+                st.session_state.last_validated_key = api_key
+                st.sidebar.success("API key is valid ✅")
+                return api_key
+            else:
+                st.sidebar.error(error_message)
+                logger.error(f"API key validation error: {error_message}")
+                st.session_state.validated_api_key = False
+                st.session_state.last_validated_key = None
+                return None
+        elif st.session_state.validated_api_key:
+            return api_key
+    
+    return None
 
-    return st.session_state.openai_api_key
 
-def play_background_music(file_path) -> None:
+def play_background_music(audio_base64: str) -> None:
     """
     Embed and play background music in the Streamlit app.
 
     Args:
-        file_path (str): The path to the audio file
+        audio_base64 (str): The path to the audio file
     """
-    try:
-        with open(file_path, 'rb') as audio_file:
-            audio_bytes = audio_file.read()
-            st.markdown(
-                f'<audio autoplay loop><source src="data:audio/mp3;base64,{base64.b64encode(audio_bytes).decode()}" type="audio/mp3"></audio>',
+    st.markdown(
+        f'<audio autoplay loop><source src="data:audio/mp3;base64,{audio_base64}" type="audio/mp3"></audio>',
                 unsafe_allow_html=True
             )
-    except FileNotFoundError:
-        logger.error(f"Audio file not found: {file_path}")
-        st.error(ERROR_AUDIO_NOT_FOUND)
 
-def get_knight_response(user_input: str, api_key: str) -> str:
+@st.cache_resource
+def get_llm_chain(_api_key: str):
     """
-    Get the knight's response using LangChain.
-
-    Args:
-        user_input (str): The user's input message.
-        api_key (str): The OpenAI api key
-
-    Returns:
-        str: The knight's response
+    Get the LLM chain for generating responses.
     """
     template= """
     You are a wise and knowledgeable knight who always responds in medieval style
@@ -94,9 +143,21 @@ def get_knight_response(user_input: str, api_key: str) -> str:
     """
 
     prompt = ChatPromptTemplate.from_template(template)
-    llm = ChatOpenAI(temperature=0.7, api_key=api_key)
-    chain= prompt | llm
+    llm = ChatOpenAI(temperature=0.7, api_key=_api_key)
+    return prompt | llm
 
+def get_knight_response(user_input: str, api_key: str) -> str:
+    """
+    Get the knight's response using LangChain.
+
+    Args:
+        user_input (str): The user's input message.
+        api_key (str): The OpenAI api key
+
+    Returns:
+        str: The knight's response
+    """
+    chain = get_llm_chain(api_key)
     try:
         response = chain.invoke({
             "chat_history": st.session_state.conversation_memory.load_memory_variables({})["chat_history"],
@@ -104,10 +165,13 @@ def get_knight_response(user_input: str, api_key: str) -> str:
         })
         st.session_state.conversation_memory.save_context({"input": user_input}, {"output": response.content})
         return response.content
-
+    except AuthenticationError:
+        return "Authentication error: Invalid API key. Please check your API key and try again"
+    except RateLimitError:
+        return "Rate limit exceeded. Please wait a moment before trying again"
     except Exception as e:
-        logger.error(f"Silence was observed in knight's words or Knight didn't wish to respond: str(e)")
-        return ERROR_RESPONSE_GENERATION
+        logger.error(f"Error in getting the knight's response: {str(e)}")
+        return f"An error occured: {str(e)}"
 
 def display_chat_messages()-> None:
     """
@@ -147,14 +211,14 @@ def main() -> None:
     st.title(TITLE)
 
     # Image of Pixel knight
-    if os.path.exists(IMAGE_PATH):
-        st.image(IMAGE_PATH, use_column_width=True)
+    image_path = load_image(IMAGE_PATH)
+    if image_path:
+        st.image(image_path, use_column_width=True)
     else:
-        logger.warning(f"Image file for the knight not found: {IMAGE_PATH}")
         st.error(ERROR_IMAGE_NOT_FOUND)
 
     # Check for api key before allowing the chat to initiate
-    api_key=manage_api_key()
+    api_key = manage_api_key()
 
     if not api_key:
         st.warning("Please enter OpenAI API key in the sidebar to initiate the chat")
@@ -168,7 +232,11 @@ def main() -> None:
             handle_user_input(api_key)
 
         if st.session_state.music_playing:
-            play_background_music(AUDIO_PATH)
+            audio_base64 = load_audio(AUDIO_PATH)
+            if audio_base64:
+                play_background_music(audio_base64)
+            else:
+                st.error(ERROR_AUDIO_NOT_FOUND)
 
 if __name__ == "__main__":
     main()
