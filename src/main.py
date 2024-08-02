@@ -7,6 +7,8 @@ from langchain_openai import ChatOpenAI
 from langchain.prompts import ChatPromptTemplate
 from langchain.memory import ConversationBufferMemory
 from openai import AuthenticationError, RateLimitError
+import pandas as pd
+from io import BytesIO
 
 # Importing constants from config file
 from config import (
@@ -170,7 +172,7 @@ def play_background_music(audio_base64: str) -> None:
         audio_base64 (str): The base64-encoded audio data.
     """
     st.markdown(
-        f'''
+        f"""
         <audio id="background-music" autoplay loop>
             <source src="data:audio/mp3;base64,{audio_base64}" type="audio/mp3">
         </audio>
@@ -178,7 +180,7 @@ def play_background_music(audio_base64: str) -> None:
             var audio = document.getElementById("background-music");
             audio.volume = 0.6; // Adjust volume as needed (0.0 to 1.0)
         </script>
-        ''',
+        """,
                 unsafe_allow_html=True
             )
 
@@ -196,22 +198,43 @@ def get_llm_chain(_api_key: str):
 
     Returns:
         Chain: A LangChain chain object that can be used to generate responses.
-        
+
     """
 
-    template= """
-    You are a wise and knowledgeable knight who always responds in medieval style
-    Your task is to provide top 5 news highlists from around the world of the user provided month and year
+    template = """
+    You are Sir Galahad, a wise and knowledgeable knight of the Round Table, known for your purity and nobility. 
+    Your task is to provide the top 5 real-world news highlights from around the world for the user-provided month and year.
+    Present this information as if you're recounting tales from your travels across the realm.
+
+    Remember to:
+    1. Speak in a medieval style, using appropriate language and expressions.
+    2. Ensure all information is based on real-world events.
+    3. Offer brief, knightly insights on each piece of news.
+    4. Maintain a tone of honor, chivalry, and wisdom in your responses.
+    5. If asked about future dates, focus on positivity and motivation, encouraging the user to shape the future.
+    6. Only provide information about events that have actually occurred. Do not invent or speculate about news events.
+
+    If the date is in the future:
+    1. Acknowledge that the date is yet to come.
+    2. Offer words of encouragement and motivation about shaping the future.
+    3. Avoid making predictions or inventing news events.
 
     Current conversation:
     {chat_history}
     Human: {human_input}
-    Knight:
+    Sir Galahad:
     """
 
     prompt = ChatPromptTemplate.from_template(template)
     llm = ChatOpenAI(temperature=0.7, api_key=_api_key)
     return prompt | llm
+
+def reset_chat():
+    st.session_state.messages = []
+    st.session_state.conversation_memory.clear()
+    st.session_state.chat_started = False
+
+
 
 def get_knight_response(user_input: str, api_key: str) -> str:
     """
@@ -227,7 +250,7 @@ def get_knight_response(user_input: str, api_key: str) -> str:
 
     Returns:
         str: The knight's response or an error message if an exception occurs
-
+        
     """
     chain = get_llm_chain(api_key)
     try:
@@ -262,9 +285,19 @@ def display_chat_messages()-> None:
     user and assistant (knight) messages.
 
     """
-    for message in st.session_state.messages:
-        with st.chat_message(message["role"]):
-            st.markdown(message["content"])
+    if st.session_state.messages:
+        last_message = st.session_state.messages[-1]
+        with st.chat_message(last_message["role"]):
+            st.markdown(last_message["content"])
+
+
+def download_transcript():
+    df = pd.DataFrame(st.session_state.messages)
+    output = BytesIO()
+    df.to_csv(output, index=False)
+    output.seek(0)
+    return output.getvalue()
+
 
 def handle_user_input(api_key: str) -> None:
     """
@@ -324,16 +357,33 @@ def main() -> None:
     if not api_key:
         st.warning("Please enter OpenAI API key in the sidebar to initiate the chat")
     else:
-        if st.button(START_CHAT_BUTTON_TEXT):
-            st.session_state.chat_started = True
-            st.session_state.music_playing = False
+        col1, col2 = st.columns(2)
+        with col1:
+            if st.button("Reset Camp" if st.session_state.chat_started else START_CHAT_BUTTON_TEXT):
+                if st.session_state.chat_started:
+                    reset_chat()
+                else:
+                    st.session_state.chat_started = True
+                    st.session_state.music_playing = False
+
+        with col2:
+            transcript = download_transcript()
+            if transcript:
+                st.download_button(
+                    label="Download Transcript of Camp",
+                    data=transcript,
+                    file_name="chat_transcript.csv",
+                    mime="text/csv",
+                )
 
         if st.session_state.chat_started:
             if not st.session_state.music_playing:
                 audio_base64 = load_audio(AUDIO_PATH)
                 if audio_base64:
                     play_background_music(audio_base64)
-                    st.session_state.music_playing = False
+                     # Counter-intuitively, we set this to False to make the music continue playing.
+                    # This ensures the audio element is re-embedded on each Streamlit rerun.
+                    st.session_state.music_playing = False 
                 else:
                     st.error(ERROR_AUDIO_NOT_FOUND)
 
